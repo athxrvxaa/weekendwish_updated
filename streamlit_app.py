@@ -40,7 +40,7 @@ except Exception:
 CSV_PATH = "pune_processed.csv"
 st.set_page_config(page_title="WeekendWish (Groq)", layout="wide")
 st.title("WeekendWish — Itinerary ")
-
+ 
 # ---------------------------
 # Controls
 # ---------------------------
