@@ -457,3 +457,4 @@ if st.session_state.get("results"):
         mp = [{"lat": r["lat"], "lon": r["lon"]} for r in results_to_show if r.get("lat") and r.get("lon")]
         if mp:
             st.map(pd.DataFrame(mp))
+#1
