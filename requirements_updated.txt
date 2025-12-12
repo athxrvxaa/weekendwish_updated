@@ -9,6 +9,5 @@ openai
 python-dotenv
 Flask
 flask-cors
-python-dotenv
-geopy
-streamlit
+
+
