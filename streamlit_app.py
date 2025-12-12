@@ -1,10 +1,9 @@
 # streamlit_app.py
 """
-Streamlit UI for WeekendWish (final)
-- Price removed
-- Photos removed
-- Results rendered as visual cards (HTML boxes), sanitized with html.escape
-- Uses online helpers (api.py or extras.py) if available, else offline CSV
+Streamlit UI for WeekendWish — compact grid layout with searchable category selector
+- Adds a searchable dropdown for category (type-ahead via Streamlit selectbox)
+- Category filters are applied in both online (Foursquare) and offline (CSV) searches
+- Compact/Comfortable views, grid columns, map panel remain as before
 """
 
 import os
@@ -36,27 +35,51 @@ except Exception:
 
 CSV_PATH = "pune_processed.csv"
 
-st.set_page_config(page_title="WeekendWish", layout="centered")
-st.title("WeekendWish — Find popular places nearby (Streamlit)")
+# Page config
+st.set_page_config(page_title="WeekendWish", layout="wide")
+st.title("WeekendWish — Find popular places nearby")
 
-col1, col2 = st.columns([3,1])
-with col1:
-    start_input = st.text_input("Starting location (address or lat,lng)", value="Kothrud, Pune")
-with col2:
-    use_offline = st.selectbox("Data source", ["Auto (try online then offline)", "Foursquare (online)", "Offline CSV"])
+# Category options (adjust/extend as needed)
+CATEGORIES = [
+    "any", "restaurant", "cafe", "bar", "pub", "fast_food", "bakery",
+    "park", "garden", "museum", "theatre", "cinema", "mall",
+    "supermarket", "viewpoint", "attraction", "historical", "monument",
+    "temple", "church", "mosque", "zoo", "aquarium", "library",
+    "nightclub", "food_court", "ice_cream", "dessert", "street_food",
+    "art_gallery", "market", "stadium", "hiking", "beach", "lake",
+    "river", "campground", "playground", "amusement_park"
+]
 
-col3, col4 = st.columns([1,1])
-with col3:
-    budget = st.number_input("Budget (total) — kept for internal filtering", min_value=0.0, value=2000.0, step=100.0)
-with col4:
+# Controls row
+with st.container():
+    cols = st.columns([3, 1, 1])
+    with cols[0]:
+        start_input = st.text_input("Starting location (address or lat,lng)", value="Kothrud, Pune")
+    with cols[1]:
+        data_mode = st.selectbox("Data source", ["Auto (online then offline)", "Foursquare (online)", "Offline CSV"])
+    with cols[2]:
+        layout_mode = st.selectbox("View", ["Compact", "Comfortable"], index=0)
+
+# Category selectbox: supports type-ahead searching
+category = st.selectbox("Category (start typing to search)", CATEGORIES, index=0, help="Type to search categories; choose 'any' to disable category filtering")
+
+col_a, col_b = st.columns([1, 1])
+with col_a:
+    budget = st.number_input("Budget (total)", min_value=0.0, value=2000.0, step=100.0)
+with col_b:
     people = st.number_input("People", min_value=1, value=2, step=1)
 
 radius = st.slider("Search radius (meters)", min_value=1000, max_value=30000, value=8000, step=500)
 
-st.write("")  # gap
+# Extra small options
+with st.expander("Advanced options (compact)"):
+    n_columns = st.selectbox("Grid columns", [1, 2, 3], index=1, help="How many cards per row on wide screens")
+    show_map = st.checkbox("Show map panel", value=True)
+    sort_by = st.selectbox("Sort by", ["popularity", "distance"], index=0)
+
 run_btn = st.button("Find places")
 
-# ---- helpers ----
+# Helpers
 def parse_latlng(text):
     if not isinstance(text, str):
         return None, None
@@ -70,7 +93,6 @@ def parse_latlng(text):
     return None, None
 
 def budget_to_price_level(budget_pp):
-    # simple heuristic, kept for internal filtering if online returns price tiers
     if budget_pp < 200:
         return 1
     if budget_pp < 500:
@@ -86,7 +108,61 @@ def score_popularity_pop(pop):
     except:
         return 0.0
 
-def search_offline(lat, lon, radius_m, budget_pp, top_n=12):
+def travel_time_minutes(distance_km, avg_speed_kmph=20):
+    try:
+        return (distance_km / avg_speed_kmph) * 60
+    except:
+        return None
+
+def matches_category_offline(row, category_selected):
+    """
+    Determine whether an offline CSV row matches the selected category.
+    - checks 'category' column (exact or contains)
+    - falls back to 'tags' column (string contains)
+    """
+    if not category_selected or category_selected == "any":
+        return True
+    # check category column
+    cat_col = None
+    if "category" in row.index:
+        cat_col = row.get("category")
+        if isinstance(cat_col, str) and category_selected.lower() in cat_col.lower():
+            return True
+    # fallback to 'tags'
+    if "tags" in row.index:
+        tags = row.get("tags") or ""
+        if isinstance(tags, str) and category_selected.lower() in tags.lower():
+            return True
+    # also try name heuristics
+    name = row.get("name") or ""
+    if isinstance(name, str) and category_selected.lower() in name.lower():
+        return True
+    return False
+
+def matches_category_online(place_obj, category_selected):
+    """
+    Check FSQ place categories list for a match.
+    Each 'category' in FSQ may be dicts with 'name'.
+    """
+    if not category_selected or category_selected == "any":
+        return True
+    cats = place_obj.get("categories") or []
+    for c in cats:
+        # c might be dict or string
+        if isinstance(c, dict):
+            nm = c.get("name") or ""
+        else:
+            nm = str(c)
+        if category_selected.lower() in nm.lower():
+            return True
+    # also inspect the 'categories' short names or 'tags' fallback
+    # check name
+    name = place_obj.get("name") or ""
+    if isinstance(name, str) and category_selected.lower() in name.lower():
+        return True
+    return False
+
+def search_offline(lat, lon, radius_m, budget_pp, top_n=50, category_selected="any"):
     if not os.path.exists(CSV_PATH):
         st.warning(f"Offline CSV not found at {CSV_PATH}.")
         return []
@@ -103,12 +179,16 @@ def search_offline(lat, lon, radius_m, budget_pp, top_n=12):
     def dist_m(r):
         return geodesic((lat, lon), (r["lat"], r["lon"])).meters
 
-    # compute distances
     df["distance_m"] = df.apply(lambda r: dist_m(r), axis=1)
     df = df[df["distance_m"] <= radius_m].copy()
 
     price_col = "price_tier" if "price_tier" in df.columns else ("price" if "price" in df.columns else None)
     pop_col = "popularity" if "popularity" in df.columns else None
+
+    # category filtering
+    if category_selected and category_selected != "any":
+        # apply the matches_category_offline row-wise
+        df = df[df.apply(lambda row: matches_category_offline(row, category_selected), axis=1)]
 
     if price_col:
         df["affordable"] = df[price_col].fillna(2).astype(float) <= budget_to_price_level(budget_pp)
@@ -132,13 +212,22 @@ def search_offline(lat, lon, radius_m, budget_pp, top_n=12):
         })
     return results
 
-def search_online(lat, lon, radius_m, budget_pp, top_n=12):
+def search_online(lat, lon, radius_m, budget_pp, top_n=50, category_selected="any"):
     if ONLINE_HELPERS is None:
-        raise RuntimeError("Online helpers (api.py/extras.py) not available.")
-    raw = fsq_search_places(lat, lon, radius=radius_m, limit=40)
+        raise RuntimeError("Online helpers not available.")
+    raw = fsq_search_places(lat, lon, radius=radius_m, limit=60)
     max_price = budget_to_price_level(budget_pp)
     cleaned = []
     for p in raw:
+        # category filter
+        if category_selected and category_selected != "any":
+            try:
+                if not matches_category_online(p, category_selected):
+                    continue
+            except Exception:
+                # if any error in checking, be conservative and include
+                pass
+
         pid = p.get("fsq_place_id") or p.get("id")
         name = p.get("name")
         price = p.get("price")
@@ -163,22 +252,38 @@ def search_online(lat, lon, radius_m, budget_pp, top_n=12):
     cleaned = sorted(cleaned, key=lambda x: x.get("score", 0), reverse=True)[:top_n]
     return cleaned
 
-# ---- display helpers ----
-CARD_STYLE = """
+# Compact card HTML templates
+CARD_COMPACT = """
+<div style="
+  border:1px solid rgba(255,255,255,0.06);
+  border-radius:8px;
+  padding:8px 10px;
+  margin:6px;
+  background: rgba(0,0,0,0.02);
+">
+  <div style="font-size:15px;font-weight:600;margin-bottom:4px;">{name}</div>
+  <div style="font-size:12px;color:#6c757d;margin-bottom:6px;">{address}</div>
+  <div style="font-size:12px;color:#333">Popularity: <strong>{pop}</strong> &nbsp; • &nbsp; Distance: <strong>{dist}</strong></div>
+  <div style="margin-top:6px;font-size:12px;"><a href="{maps}" target="_blank">Open in Maps</a></div>
+</div>
+"""
+
+CARD_COMFORT = """
 <div style="
   border:1px solid #e6e6e6;
   border-radius:10px;
   padding:12px;
-  margin-bottom:12px;
+  margin:8px 6px;
   box-shadow: 0 1px 3px rgba(0,0,0,0.06);
 ">
   <div style="font-size:18px;font-weight:600;margin-bottom:6px;">{name}</div>
   <div style="color:#555;margin-bottom:6px;">{address}</div>
   <div style="font-size:13px;color:#333">Popularity: <strong>{pop}</strong> &nbsp;&nbsp; Distance: <strong>{dist}</strong></div>
+  <div style="margin-top:8px"><a href="{maps}" target="_blank">Open in Google Maps</a></div>
 </div>
 """
 
-# ---- main action ----
+# Main action
 if run_btn:
     lat0, lon0 = parse_latlng(start_input)
     if lat0 is None or lon0 is None:
@@ -189,54 +294,100 @@ if run_btn:
             lat0 = lon0 = None
 
     if lat0 is None:
-        st.error("Couldn't get coordinates for starting location. Try lat,lng or check geocoding keys.")
+        st.error("Couldn't determine starting coordinates. Try lat,lng or check geocoding keys.")
     else:
         st.info(f"Searching around {lat0:.6f}, {lon0:.6f} within {radius} meters ...")
         budget_pp = float(budget) / max(1, int(people))
 
+        # get results according to mode
         results = []
-        mode = use_offline
-        if mode == "Auto (try online then offline)":
-            if ONLINE_HELPERS:
-                try:
-                    results = search_online(lat0, lon0, radius, budget_pp)
-                    if not results:
-                        results = search_offline(lat0, lon0, radius, budget_pp)
-                except Exception as e:
-                    st.warning("Online search failed; falling back to offline. (" + str(e) + ")")
-                    results = search_offline(lat0, lon0, radius, budget_pp)
+        try:
+            if data_mode == "Auto (online then offline)":
+                if ONLINE_HELPERS:
+                    try:
+                        results = search_online(lat0, lon0, radius, budget_pp, top_n=80, category_selected=category)
+                        if not results:
+                            results = search_offline(lat0, lon0, radius, budget_pp, top_n=80, category_selected=category)
+                    except Exception as e:
+                        st.warning("Online search failed; falling back to offline. (" + str(e) + ")")
+                        results = search_offline(lat0, lon0, radius, budget_pp, top_n=80, category_selected=category)
+                else:
+                    results = search_offline(lat0, lon0, radius, budget_pp, top_n=80, category_selected=category)
+            elif data_mode == "Foursquare (online)":
+                if not ONLINE_HELPERS:
+                    st.error("Online helper functions not found. Falling back to offline.")
+                    results = search_offline(lat0, lon0, radius, budget_pp, top_n=80, category_selected=category)
+                else:
+                    results = search_online(lat0, lon0, radius, budget_pp, top_n=80, category_selected=category)
             else:
-                results = search_offline(lat0, lon0, radius, budget_pp)
-        elif mode == "Foursquare (online)":
-            if not ONLINE_HELPERS:
-                st.error("Online helper functions not found. Falling back to offline.")
-                results = search_offline(lat0, lon0, radius, budget_pp)
-            else:
-                try:
-                    results = search_online(lat0, lon0, radius, budget_pp)
-                except Exception as e:
-                    st.error("Online search error: " + str(e))
-                    results = []
-        else:
-            results = search_offline(lat0, lon0, radius, budget_pp)
+                results = search_offline(lat0, lon0, radius, budget_pp, top_n=80, category_selected=category)
+        except Exception as e:
+            st.error("Search failed: " + str(e))
+            results = []
 
         if not results:
             st.write("No places found.")
         else:
-            # Render visual cards (sanitized)
-            for r in results:
-                name = html_lib.escape(r.get("name") or "")
-                address = html_lib.escape(r.get("address") or "")
-                pop_text = html_lib.escape(str(r.get("popularity") if r.get("popularity") is not None else "—"))
-                dist_text = f"{(r.get('distance_m')/1000):.2f} km" if r.get('distance_m') is not None else "—"
+            # optional sort
+            if sort_by == "popularity":
+                results = sorted(results, key=lambda x: x.get("popularity") or 0, reverse=True)
+            else:
+                results = sorted(results, key=lambda x: x.get("distance_m") or 1e9)
 
-                html = CARD_STYLE.format(name=name, address=address, pop=pop_text, dist=dist_text)
-                st.markdown(html, unsafe_allow_html=True)
+            # Layout: optional map column
+            if show_map:
+                left_col, right_col = st.columns([3, 1])
+            else:
+                left_col = st.container()
+                right_col = None
 
-            # Map
-            try:
-                map_df = pd.DataFrame([{"lat": r["lat"], "lon": r["lon"], "name": r["name"]} for r in results if r.get("lat") and r.get("lon")])
-                if not map_df.empty:
-                    st.map(map_df.rename(columns={"lon":"lon", "lat":"lat"}))
-            except Exception:
-                pass
+            # Prepare map data list
+            map_points = []
+
+            # Render grid in left_col
+            with left_col:
+                ncols = max(1, int(n_columns))
+                grid_cols = st.columns(ncols)
+                for idx, r in enumerate(results):
+                    col_idx = idx % ncols
+                    c = grid_cols[col_idx]
+                    name = html_lib.escape(r.get("name") or "")
+                    address = html_lib.escape(r.get("address") or "")
+                    pop_text = html_lib.escape(str(r.get("popularity") if r.get("popularity") is not None else "—"))
+                    dist_km = (r.get("distance_m") or 0) / 1000.0
+                    dist_text = f"{dist_km:.2f} km" if r.get("distance_m") is not None else "—"
+                    maps_q = html_lib.escape(f"{r.get('name','')} {r.get('address','')}")
+                    maps_url = f"https://www.google.com/maps/search/?api=1&query={maps_q}"
+
+                    card_html = CARD_COMPACT.format(name=name, address=address, pop=pop_text, dist=dist_text, maps=maps_url) \
+                        if layout_mode == "Compact" else CARD_COMFORT.format(name=name, address=address, pop=pop_text, dist=dist_text, maps=maps_url)
+
+                    c.markdown(card_html, unsafe_allow_html=True)
+                    with c.expander("Details"):
+                        st.write("**Name:**", r.get("name"))
+                        if r.get("address"):
+                            st.write("**Address:**", r.get("address"))
+                        st.write("**Popularity:**", r.get("popularity"))
+                        if r.get("distance_m") is not None:
+                            st.write("**Distance:**", f"{(r.get('distance_m')/1000):.2f} km")
+                            eta = travel_time_minutes((r.get("distance_m")/1000.0), avg_speed_kmph=20)
+                            if eta is not None:
+                                st.write("**Approx travel time:**", f"{int(eta)} min (by road, ~20 km/h)")
+
+                    if r.get("lat") and r.get("lon"):
+                        map_points.append({"lat": r["lat"], "lon": r["lon"], "name": r["name"]})
+
+            # Render map in right column if enabled
+            if right_col is not None:
+                with right_col:
+                    st.write("Map")
+                    try:
+                        if map_points:
+                            map_df = pd.DataFrame(map_points)
+                            st.map(map_df)
+                        else:
+                            st.write("No map points to show.")
+                    except Exception as e:
+                        st.write("Map error:", e)
+
+# end main
