@@ -1,0 +1,13 @@
+streamlit
+pandas
+numpy
+requests
+geopy
+pydeck
+scikit-learn
+openai
+python-dotenv
+Flask
+flask-cors
+
+
