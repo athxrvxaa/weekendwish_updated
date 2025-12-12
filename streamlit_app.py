@@ -1,11 +1,13 @@
-# streamlit_app.py
 """
 WeekendWish — Streamlit app
-All original parameters restored
-UI fixed
-LOGIC COMPLETELY UNCHANGED
+UI enhanced
+Category filtering FIXED
+Logic otherwise unchanged
 """
 
+# ============================================================
+# 1. Imports
+# ============================================================
 import math
 import html as html_lib
 import pandas as pd
@@ -13,9 +15,9 @@ import streamlit as st
 import streamlit.components.v1 as components
 from geopy.distance import geodesic
 
-# ---------------------------
-# Optional helper imports
-# ---------------------------
+# ============================================================
+# 2. Optional Online Helpers
+# ============================================================
 ONLINE_HELPERS = None
 geocode_address = None
 fsq_search_places = None
@@ -30,15 +32,15 @@ except Exception:
     except Exception:
         ONLINE_HELPERS = None
 
-# ---------------------------
-# Config
-# ---------------------------
+# ============================================================
+# 3. Config
+# ============================================================
 CSV_PATH = "pune_processed.csv"
 st.set_page_config(page_title="WeekendWish — Itinerary", layout="wide")
 
-# ---------------------------
-# CSS (UI ONLY)
-# ---------------------------
+# ============================================================
+# 4. CSS (UI ONLY)
+# ============================================================
 st.markdown("""
 <style>
 html, body, [class*="css"] {
@@ -81,14 +83,14 @@ html, body, [class*="css"] {
 </style>
 """, unsafe_allow_html=True)
 
-# ---------------------------
-# Title
-# ---------------------------
+# ============================================================
+# 5. Title
+# ============================================================
 st.title("WeekendWish — Itinerary")
 
-# ---------------------------
-# Controls (RESTORED)
-# ---------------------------
+# ============================================================
+# 6. Controls
+# ============================================================
 start_location = st.text_input(
     "Starting location (address or lat,lng)",
     value="Kothrud, Pune"
@@ -112,7 +114,7 @@ with col3:
         ]
     )
 
-colA, colB = st.columns([1, 1])
+colA, colB = st.columns(2)
 with colA:
     budget = st.number_input("Budget (total)", min_value=0.0, value=2000.0, step=100.0)
 with colB:
@@ -128,14 +130,14 @@ with st.expander("Advanced"):
 search_btn = st.button("Find places")
 itinerary_btn = st.button("Generate Itinerary (Groq)")
 
-# ---------------------------
-# Helpers (UNCHANGED)
-# ---------------------------
+# ============================================================
+# 7. Helpers
+# ============================================================
 def parse_latlng(text):
     if "," in text:
         try:
             a, b = text.split(",", 1)
-            return float(a), float(b)
+            return float(a.strip()), float(b.strip())
         except:
             return None, None
     return None, None
@@ -146,16 +148,35 @@ def popularity_score(p):
     except:
         return 0.0
 
-# ---------------------------
-# Search implementations (UNCHANGED)
-# ---------------------------
+def match_category_offline(row, selected_category):
+    if not selected_category or selected_category == "any":
+        return True
+
+    text = " ".join([
+        str(row.get("name", "")),
+        str(row.get("category", "")),
+        str(row.get("tags", "")),
+        str(row.get("amenity", ""))
+    ]).lower()
+
+    return selected_category.lower() in text
+
+# ============================================================
+# 8. Search (FIXED)
+# ============================================================
 def search_offline(lat0, lon0, radius_m):
     df = pd.read_csv(CSV_PATH)
+
     df["distance_m"] = df.apply(
         lambda r: geodesic((lat0, lon0), (r["lat"], r["lon"])).meters,
         axis=1
     )
+
     df = df[df["distance_m"] <= radius_m]
+
+    # ✅ CATEGORY FILTER (FIX)
+    df = df[df.apply(lambda r: match_category_offline(r, category), axis=1)]
+
     df["score"] = df.get("popularity", 0).fillna(0).apply(popularity_score)
     df = df.sort_values("score", ascending=False)
 
@@ -169,6 +190,7 @@ def search_offline(lat0, lon0, radius_m):
             "lon": r["lon"],
             "distance_m": r["distance_m"]
         })
+
     return results
 
 def perform_search():
@@ -177,10 +199,7 @@ def perform_search():
     if (lat0 is None or lon0 is None) and geocode_address:
         lat0, lon0 = geocode_address(start_location)
 
-    if data_mode == "Offline CSV":
-        results = search_offline(lat0, lon0, radius)
-    else:
-        results = search_offline(lat0, lon0, radius)  # unchanged fallback
+    results = search_offline(lat0, lon0, radius)
 
     if sort_by == "distance":
         results = sorted(results, key=lambda x: x["distance_m"])
@@ -190,9 +209,9 @@ def perform_search():
     st.session_state["results"] = results
     st.session_state["start_coords"] = (lat0, lon0)
 
-# ---------------------------
-# Route ordering (UNCHANGED)
-# ---------------------------
+# ============================================================
+# 9. Route Ordering
+# ============================================================
 def order_route(pois, lat0, lon0):
     remaining = pois.copy()
     ordered = []
@@ -209,9 +228,9 @@ def order_route(pois, lat0, lon0):
 
     return ordered
 
-# ---------------------------
-# Button actions
-# ---------------------------
+# ============================================================
+# 10. Actions
+# ============================================================
 if search_btn:
     perform_search()
 
@@ -224,76 +243,73 @@ if itinerary_btn:
         *st.session_state["start_coords"]
     )
 
-    st.subheader("🧭 Optimized Route (Structured)")
+    st.subheader("🧭 Optimized Route")
+
     route_df = pd.DataFrame([
         {
             "Step": i + 1,
             "Place": p["name"],
-            "Distance from prev (km)": round(p["distance_m"] / 1000, 2),
+            "Distance (km)": round(p["distance_m"] / 1000, 2),
             "Travel time (min)": int((p["distance_m"] / 1000) / 20 * 60),
             "Suggested stay": "60–90 mins"
         }
         for i, p in enumerate(ordered)
     ])
+
     st.dataframe(route_df, use_container_width=True, hide_index=True)
 
     st.subheader("🗓 Your Day Flow")
+
     for i, p in enumerate(ordered, start=1):
-        st.markdown(
-            f"""
-            <div class="flow-step">
-                <div class="flow-circle">{i}</div>
-                <div>
-                    <div style="font-weight:700;color:#111827">
-                        {html_lib.escape(p["name"])}
-                    </div>
-                    <div style="font-size:13px;color:#374151">
-                        ⭐ {round(float(p.get("popularity",0)),1)}
-                        • 📍 {p["distance_m"]/1000:.2f} km
-                    </div>
+        st.markdown(f"""
+        <div class="flow-step">
+            <div class="flow-circle">{i}</div>
+            <div>
+                <div style="font-weight:700">
+                    {html_lib.escape(p["name"])}
+                </div>
+                <div style="font-size:13px;color:#374151">
+                    ⭐ {round(float(p.get("popularity",0)),1)}
+                    • 📍 {p["distance_m"]/1000:.2f} km
                 </div>
             </div>
-            """,
-            unsafe_allow_html=True
-        )
+        </div>
+        """, unsafe_allow_html=True)
 
-# ---------------------------
-# Nearby Places (WHITE CARDS)
-# ---------------------------
+# ============================================================
+# 11. Nearby Places
+# ============================================================
 if st.session_state.get("results"):
     st.subheader("📍 Nearby Places")
 
     cols = st.columns(n_columns)
     for i, r in enumerate(st.session_state["results"]):
         with cols[i % n_columns]:
-            components.html(
-                f"""
-                <div style="
-                    background:#ffffff;
-                    border-radius:16px;
-                    padding:16px;
-                    box-shadow:0 8px 22px rgba(0,0,0,0.08);
-                ">
-                    <div style="font-weight:700;color:#111827">
-                        {html_lib.escape(r["name"])}
-                    </div>
-
-                    <div style="margin-top:8px">
-                        <span class="badge">⭐ {round(float(r.get("popularity",0)),1)}</span>
-                        <span class="badge">📍 {r["distance_m"]/1000:.2f} km</span>
-                    </div>
-
-                    <div style="margin-top:12px">
-                        <a href="https://www.google.com/maps/search/?api=1&query={html_lib.escape(r['name'])}"
-                           target="_blank"
-                           style="font-weight:600;text-decoration:none;color:#4f46e5">
-                           🗺 Open in Google Maps
-                        </a>
-                    </div>
+            components.html(f"""
+            <div style="
+                background:#ffffff;
+                border-radius:16px;
+                padding:16px;
+                box-shadow:0 8px 22px rgba(0,0,0,0.08);
+            ">
+                <div style="font-weight:700">
+                    {html_lib.escape(r["name"])}
                 </div>
-                """,
-                height=210
-            )
+
+                <div style="margin-top:8px">
+                    <span class="badge">⭐ {round(float(r.get("popularity",0)),1)}</span>
+                    <span class="badge">📍 {r["distance_m"]/1000:.2f} km</span>
+                </div>
+
+                <div style="margin-top:12px">
+                    <a href="https://www.google.com/maps/search/?api=1&query={html_lib.escape(r['name'])}"
+                       target="_blank"
+                       style="font-weight:600;color:#4f46e5;text-decoration:none">
+                       🗺 Open in Google Maps
+                    </a>
+                </div>
+            </div>
+            """, height=210)
 
     if show_map:
         st.map(pd.DataFrame([
