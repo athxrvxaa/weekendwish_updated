@@ -1,44 +1,58 @@
 # WeekendWish 🌆✨
 
-**WeekendWish** is a smart local outing recommendation system that helps users discover nearby places and plan a budget-friendly weekend itinerary in **Pune**.
-It combines **live location data**, **offline datasets**, and **popularity-based ranking** to suggest the best places around you.
+**WeekendWish** is a location-based recommendation system that helps users discover nearby places in **Pune** and plan a budget-friendly weekend outing.
+It supports **live API-based search** as well as **offline data fallback**, with an interactive UI and a REST API.
 
 ---
 
 ## 🚀 Features
 
-* 📍 Find nearby places based on starting location
-* 💰 Budget-aware recommendations (per person)
-* ⭐ Popularity-based ranking of places
-* 🗺️ Distance & route optimization
-* 🌐 Works **online (Foursquare API)** and **offline (CSV fallback)**
-* 🖥️ Interactive UI built with **Streamlit**
-* 🔌 REST API using **Flask**
+* 📍 Nearby place discovery from a starting location
+* 💰 Budget-based filtering (per person)
+* ⭐ Popularity-based ranking
+* 🗺️ Distance calculation & route ordering
+* 🌐 Online (Foursquare + LocationIQ) & Offline (CSV) support
+* 🖥️ Streamlit frontend + Flask backend API
 
 ---
 
 ## 🧠 Tech Stack
 
 * **Python**
-* **Streamlit** – Frontend UI
-* **Flask** – Backend API (`/api/recommend`)
+* **Streamlit** – UI
+* **Flask** – REST API
 * **Foursquare Places API (2025)**
-* **LocationIQ** – Geocoding
-* **OpenStreetMap (OSM)** – Offline data
-* **Pandas, NumPy, Geopy**
+* **LocationIQ**
+* **OpenStreetMap (OSM)**
+* Pandas, NumPy, Geopy
 
 ---
 
 ## 📂 Project Structure
 
 ```
-├── streamlit_app.py      # Main Streamlit app
-├── api_updated.py        # Flask API backend
-├── api.py / extras.py    # Helper functions (geocoding, FSQ)
-├── scrape.py             # OSM data scraper
-├── json_to_csv.py        # Data preprocessing
-├── pune_processed.csv    # Offline dataset
+weekendwish_updated/
+│
+├── streamlit_app.py        # Main Streamlit application
+├── api_updated.py          # Flask API (/api/recommend)
+├── api.py                  # API helper functions
+├── extras.py               # Fallback helpers
+├── scrape.py               # OSM data scraper
+├── json_to_csv.py          # JSON → CSV processing
+├── pune_processed.csv      # Offline dataset
+│
+├── static/
+│   └── js/
+│       └── app.js          # Frontend JS
+│
+├── templates/
+│   └── nearby.html         # API demo UI
+│
+├── not-needed/
+│   └── eda.ipynb           # Exploratory analysis
+│
 ├── requirements.txt
+├── .gitignore
 └── README.md
 ```
 
@@ -65,7 +79,7 @@ LOCATIONIQ_KEY=your_locationiq_key
 streamlit run streamlit_app.py
 ```
 
-### 4️⃣ Run API (Optional)
+### 4️⃣ Run Flask API (Optional)
 
 ```bash
 python api_updated.py
@@ -77,7 +91,7 @@ python api_updated.py
 
 **POST** `/api/recommend`
 
-**Input**
+**Sample Input**
 
 ```json
 {
@@ -88,26 +102,26 @@ python api_updated.py
 }
 ```
 
-**Output**
+**Returns**
 
-* Recommended places with name, location, popularity & photos
+* Ranked nearby places with location, popularity & photos
 
 ---
 
 ## 🎯 Use Case
 
-* College project / evaluation
-* Weekend planning app
-* Location-based recommendation systems
+* College / academic project
+* Location-based recommendation system
+* Weekend outing planner
 
 ---
 
-## 🔮 Future Improvements
+## 🔮 Future Scope
 
 * ML-based personalization
-* Time-based itinerary planning
 * Multi-city support
-* User preferences & history
+* Time-aware itineraries
+* User preference learning
 
 ---
 
